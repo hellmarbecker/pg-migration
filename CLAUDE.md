@@ -64,4 +64,4 @@ All settings live in `config.env` (profile, region `eu-central-1`, instance ID, 
 
 ## Status
 
-Migration completed on 2026-11-20: all four `shop` tables match source vs target (count + md5), and target sequences are reset. The console migration is deleted and no replication slot remains on RDS. Both RDS and the target are still running and billed; tear down with `98-teardown-target.sh` / `99-teardown-rds.sh`.
+Migration completed on 2026-11-20: all four `shop` tables match source vs target (count + md5), and target sequences are reset. The console migration is deleted and no replication slot remains on RDS. On 2026-11-21 both the target service and the RDS instance were torn down, along with its subnet, parameter and security groups. RDS removed the automated snapshot on its own soon after. Nothing is left running. To rebuild, delete `.env.local` first, because the scripts reuse saved passwords. Then run `01`–`04` again.
