@@ -33,8 +33,12 @@ GRANT USAGE ON SCHEMA :"schema" TO :"user";
 GRANT SELECT ON ALL TABLES IN SCHEMA :"schema" TO :"user";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA :"schema" GRANT SELECT ON TABLES TO :"user";
 GRANT rds_replication TO :"user";
-SELECT format('CREATE PUBLICATION %I FOR TABLES IN SCHEMA %I', :'pub', :'schema')
+-- publish_via_partition_root: partitioned tables are published as their root
+-- table, so the import copies each partitioned table once, not per partition.
+SELECT format('CREATE PUBLICATION %I FOR TABLES IN SCHEMA %I WITH (publish_via_partition_root = true)', :'pub', :'schema')
 WHERE NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = :'pub') \gexec
+SELECT format('ALTER PUBLICATION %I SET (publish_via_partition_root = true)', :'pub')
+FROM pg_publication WHERE pubname = :'pub' AND NOT pubviaroot \gexec
 SQL
 
 # Every published table needs a primary key (or REPLICA IDENTITY FULL).
