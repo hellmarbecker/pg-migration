@@ -25,7 +25,8 @@ fi
 # --- Source: user, grants, publication ---
 log "Configuring $CLICKPIPES_USER and publication $CLICKPIPES_PUBLICATION on RDS"
 rds_psql -q -v user="$CLICKPIPES_USER" -v pw="$CLICKPIPES_PASSWORD" \
-  -v schema="$MIG_SCHEMA" -v pub="$CLICKPIPES_PUBLICATION" -v owner="$RDS_MASTER_USER" <<'SQL'
+  -v schema="$MIG_SCHEMA" -v pub="$CLICKPIPES_PUBLICATION" -v owner="$RDS_MASTER_USER" \
+  -v viaroot="$CLICKPIPES_VIA_ROOT" <<'SQL'
 SELECT format(CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'user')
                    THEN 'ALTER ROLE %I WITH LOGIN PASSWORD %L'
                    ELSE 'CREATE ROLE %I WITH LOGIN PASSWORD %L' END, :'user', :'pw') \gexec
@@ -33,12 +34,12 @@ GRANT USAGE ON SCHEMA :"schema" TO :"user";
 GRANT SELECT ON ALL TABLES IN SCHEMA :"schema" TO :"user";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA :"schema" GRANT SELECT ON TABLES TO :"user";
 GRANT rds_replication TO :"user";
--- publish_via_partition_root: partitioned tables are published as their root
--- table, so the import copies each partitioned table once, not per partition.
-SELECT format('CREATE PUBLICATION %I FOR TABLES IN SCHEMA %I WITH (publish_via_partition_root = true)', :'pub', :'schema')
+-- publish_via_partition_root (CLICKPIPES_VIA_ROOT): with true, partitioned tables
+-- are published as their root table; with false, as their leaf partitions.
+SELECT format('CREATE PUBLICATION %I FOR TABLES IN SCHEMA %I WITH (publish_via_partition_root = %s)', :'pub', :'schema', :'viaroot')
 WHERE NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = :'pub') \gexec
-SELECT format('ALTER PUBLICATION %I SET (publish_via_partition_root = true)', :'pub')
-FROM pg_publication WHERE pubname = :'pub' AND NOT pubviaroot \gexec
+SELECT format('ALTER PUBLICATION %I SET (publish_via_partition_root = %s)', :'pub', :'viaroot')
+FROM pg_publication WHERE pubname = :'pub' AND pubviaroot <> :'viaroot'::boolean \gexec
 SQL
 
 # Every published table needs a primary key (or REPLICA IDENTITY FULL).
@@ -49,6 +50,8 @@ WHERE n.nspname = :'schema' AND c.relkind = 'r' AND c.relreplident <> 'f'
 SQL
 )"
 [[ -z "$NO_PK" ]] || { log "Tables without primary key: $NO_PK"; exit 1; }
+log "Publication $CLICKPIPES_PUBLICATION (publish_via_partition_root=$CLICKPIPES_VIA_ROOT) lists: $(rds_psql -At -c \
+  "select string_agg(tablename, ', ' order by tablename) from pg_publication_tables where pubname = '$CLICKPIPES_PUBLICATION'")"
 
 # --- Source: allow ClickPipes egress IPs for the target's region ---
 VPC_ID="$(aws ec2 describe-vpcs --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)"
